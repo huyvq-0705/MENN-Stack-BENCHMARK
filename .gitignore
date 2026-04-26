@@ -1,0 +1,62 @@
+# =========================
+# Environment Variables
+# =========================
+# Next.js supports these specific env file naming conventions
+.env
+.env*.local
+.env.development.local
+.env.test.local
+.env.production.local
+!.env.example
+
+# =========================
+# Dependencies
+# =========================
+node_modules/
+.pnp
+.pnp.js
+
+# =========================
+# Next.js Build Output
+# =========================
+.next/
+out/
+build/
+
+# =========================
+# Vercel & Hosting
+# =========================
+.vercel/
+
+# =========================
+# TypeScript
+# =========================
+*.tsbuildinfo
+next-env.d.ts
+
+# =========================
+# Testing & Coverage
+# =========================
+coverage/
+.nyc_output/
+
+# =========================
+# Logs & Debugging
+# =========================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log
+
+# =========================
+# Operating System & IDEs
+# =========================
+.DS_Store
+.DS_Store?
+._*
+.vscode/
+.idea/
+*.swp
+*.swo
+*.pem
