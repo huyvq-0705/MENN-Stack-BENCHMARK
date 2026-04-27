@@ -1,4 +1,3 @@
-// frontend/components/HomeSlider.js
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 
@@ -24,6 +23,7 @@ export default function HomeSlider({ images }) {
             alt={`Saigon Landmark ${i + 1}`} 
             fill
             sizes="100vw"
+            quality={60}
             style={{ objectFit: 'cover' }}
             className="opacity-50"
             priority={i === 0} 

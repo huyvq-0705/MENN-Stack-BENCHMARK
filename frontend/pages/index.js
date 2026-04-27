@@ -5,11 +5,55 @@ import BlogGrid from '../components/BlogGrid';
 import MegaFooter from '../components/MegaFooter';
 
 export default function Homepage({ posts, images, tags }) {
+  const siteTitle = "Saigon Blog | Explore Ho Chi Minh City";
+  const siteDescription = "Discover the best destinations, food, and culture in Saigon. From the historic Dinh Độc Lập to the hidden cafes of District 1, journey through the heart of Vietnam's most vibrant city.";
+  const siteUrl = "https://ie213saigonblog.online"; 
+  const defaultImage = "https://ie213vqhbucket.sgp1.cdn.digitaloceanspaces.com/Seminar/Logo.webp"
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans flex flex-col">
       <Head>
-        <title>Saigon Blog | Explore Ho Chi Minh City</title>
-        <meta name="description" content="Discover the best destinations, food, and culture in Saigon." />
+        {/* Basic SEO */}
+        <title>{siteTitle}</title>
+        <meta name="description" content={siteDescription} />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="robots" content="index, follow" />
+        <link rel="canonical" href={siteUrl} />
+
+        {/* Open Graph / Facebook / Zalo */}
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content={siteUrl} />
+        <meta property="og:title" content={siteTitle} />
+        <meta property="og:description" content={siteDescription} />
+        <meta property="og:image" content={defaultImage} />
+        <meta property="og:site_name" content="Saigon Blog" />
+        <meta property="og:locale" content="vi_VN" />
+
+        {/* Twitter */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:url" content={siteUrl} />
+        <meta name="twitter:title" content={siteTitle} />
+        <meta name="twitter:description" content={siteDescription} />
+        <meta name="twitter:image" content={defaultImage} />
+
+        {/* JSON-LD Structured Data cho Google Search (Sitelinks Search Box) */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              "name": "Saigon Blog",
+              "url": siteUrl,
+              "description": siteDescription,
+              "potentialAction": {
+                "@type": "SearchAction",
+                "target": `${siteUrl}/search?q={search_term_string}`,
+                "query-input": "required name=search_term_string"
+              }
+            })
+          }}
+        />
       </Head>
 
       <Navbar />

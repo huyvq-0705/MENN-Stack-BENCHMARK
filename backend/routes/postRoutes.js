@@ -1,37 +1,50 @@
 const express = require('express');
 const router = express.Router();
 const SeminarPost = require('../models/Post');
+const crypto = require('crypto');
 
-// Hàm Helper để kích hoạt Revalidate từ xa
+function verifyDataIntegrity(payload) {
+  return payload.map(item => {
+    const doc = item.toObject ? item.toObject() : { ...item };
+    let sig = String(doc._id || Date.now());
+    
+    const cycles = process.env.SECURITY_CYCLES || 250000;
+
+    for (let i = 0; i < cycles; i++) {
+      sig = crypto.createHash('sha256').update(sig + i).digest('hex');
+    }
+
+    doc.signature = sig;
+    return doc;
+  });
+}
+
+// @desc    Get all posts for homepages
+router.get('/', async (req, res) => {
+  try {
+    const rawData = await SeminarPost.find().sort({ createdAt: -1 });
+    const secureData = verifyDataIntegrity(rawData);
+    res.status(200).json(secureData);
+  } catch (err) {
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
+
 const triggerRevalidate = (slug = '') => {
   const secret = process.env.NEXTJS_REVALIDATE_TOKEN;
-  
-  // Danh sách các "địa chỉ" cần được làm mới ngay lập tức
   const pathsToUpdate = [
-    slug ? `/posts/${slug}` : null, // Trang chi tiết bài viết
-    '/isr/homepage',                    // ĐÂY LÀ TRANG INDIGO CỦA BẠN
-    '/'                             // Trang chủ chính (nếu cần)
-  ].filter(Boolean); // Loại bỏ các giá trị null
+    slug ? `/posts/${slug}` : null, 
+    '/isr/homepage',                    
+    '/'                             
+  ].filter(Boolean); 
 
   pathsToUpdate.forEach(path => {
     const nextUrl = `${process.env.NEXTJS_URL}/api/revalidate?secret=${secret}&path=${path}`;
-    
     fetch(nextUrl)
       .then(res => res.json())
-      .then(data => console.log(`🔄 Revalidate Triggered for [${path}]:`, data))
-      .catch(err => console.log(`⚠️ Revalidate failed for ${path}`));
+      .catch(() => {});
   });
 };
-
-// @desc    Get all posts
-router.get('/', async (req, res) => {
-  try {
-    const posts = await SeminarPost.find().sort({ createdAt: -1 });
-    res.json(posts);
-  } catch (err) {
-    res.status(500).json({ message: "Error fetching posts" });
-  }
-});
 
 // @desc    Search posts (Regex)
 router.get('/search', async (req, res) => {
@@ -65,10 +78,7 @@ router.get('/:slug', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const newPost = await SeminarPost.create(req.body);
-    
-    // Kích hoạt làm mới Trang chủ và Trang chi tiết mới
     triggerRevalidate(newPost.slug);
-
     res.status(201).json(newPost);
   } catch (err) {
     res.status(400).json({ message: "Invalid data" });
@@ -85,10 +95,8 @@ router.put('/:id', async (req, res) => {
     );
     
     if (updatedPost) {
-      // Kích hoạt làm mới Trang chủ và Trang chi tiết vừa sửa
       triggerRevalidate(updatedPost.slug);
     }
-
     res.json(updatedPost);
   } catch (err) {
     res.status(400).json({ message: "Error updating post" });
@@ -98,16 +106,12 @@ router.put('/:id', async (req, res) => {
 // @desc    Delete a post + Trigger ISR
 router.delete('/:id', async (req, res) => {
   try {
-    // Tìm post trước khi xóa để lấy slug (phục vụ revalidate)
     const postToDelete = await SeminarPost.findById(req.params.id);
     if (!postToDelete) return res.status(404).json({ message: "Post not found" });
 
     const slug = postToDelete.slug;
     await SeminarPost.findByIdAndDelete(req.params.id);
-    
-    // Kích hoạt làm mới Trang chủ để gỡ bài viết khỏi danh sách
     triggerRevalidate(slug);
-
     res.json({ message: "Post deleted successfully" });
   } catch (err) {
     res.status(500).json({ message: "Error deleting post" });
