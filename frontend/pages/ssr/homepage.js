@@ -3,6 +3,7 @@ import Navbar from '../../components/Navbar';
 import HomeSlider from '../../components/HomeSlider';
 import MegaFooter from '../../components/MegaFooter';
 import BlogGrid from '../../components/BlogGrid';
+import { enrichAndSortPosts, extractTags } from '../../lib/postUtils';
 
 export default function SSRPage({ posts, images, tags, timeStamp }) {
   return (
@@ -33,7 +34,6 @@ export default function SSRPage({ posts, images, tags, timeStamp }) {
           <span className="text-[10px] font-mono text-rose-600 font-bold uppercase">Latency: 2000ms (Simulated)</span>
         </div>
 
-        {/* SỬ DỤNG BLOG GRID VỚI MÀU ROSE */}
         <BlogGrid posts={posts} modeColor="rose" />
         
       </main>
@@ -44,15 +44,15 @@ export default function SSRPage({ posts, images, tags, timeStamp }) {
 }
 
 export async function getServerSideProps() {
-  // GIẢ LẬP ĐỘ TRỄ SERVER 2s
-  await new Promise(resolve => setTimeout(resolve, 2000));
 
   try {
     const BACKEND_BASE = process.env.INTERNAL_BACKEND_URL || 'http://127.0.0.1:5123';
     const res = await fetch(`${BACKEND_BASE}/api/posts`);
-    const posts = await res.json();
+    const rawPosts = await res.json();
+    // Enrich posts using the shared utility — same code path as CSR.
+    const posts = enrichAndSortPosts(rawPosts);
+    const derivedTags = extractTags(posts);
 
-    const tags = ["Realtime", "Server", "Dynamic", "Performance"];
     const images = [
       "https://ie213vqhbucket.sgp1.cdn.digitaloceanspaces.com/Seminar/Bitexco%20Quan%201.jpg",
       "https://ie213vqhbucket.sgp1.cdn.digitaloceanspaces.com/Seminar/Dinh%20Doc%20Lap%20Quan%201.jpg",
@@ -60,7 +60,12 @@ export async function getServerSideProps() {
     ];
 
     return {
-      props: { posts, images, tags, timeStamp: new Date().toLocaleString('vi-VN') }
+      props: {
+        posts,
+        images,
+        tags: ["Realtime", "Server", "Dynamic", "Performance", ...derivedTags],
+        timeStamp: new Date().toLocaleString('vi-VN')
+      }
     };
   } catch (error) {
     return { props: { posts: [], images: [], tags: [], timeStamp: "Error" } };

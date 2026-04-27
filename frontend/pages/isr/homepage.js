@@ -3,6 +3,7 @@ import Navbar from '../../components/Navbar';
 import HomeSlider from '../../components/HomeSlider';
 import MegaFooter from '../../components/MegaFooter';
 import BlogGrid from '../../components/BlogGrid';
+import { enrichAndSortPosts, extractTags } from '../../lib/postUtils';
 
 export default function ISRPage({ posts, images, tags, timeStamp }) {
   return (
@@ -48,36 +49,35 @@ export default function ISRPage({ posts, images, tags, timeStamp }) {
 export async function getStaticProps() {
   console.log("🛠️ Next.js is building (or re-building) the ISR page...");
   
-  // 1. Sử dụng biến môi trường cho URL nội bộ, fallback về IP local để tránh lỗi IPv6/IPv4
-  // Trên Coolify, bạn sẽ đặt INTERNAL_BACKEND_URL = http://tên-service-backend:5123
   const BACKEND_BASE = process.env.INTERNAL_BACKEND_URL || 'http://127.0.0.1:5123';
   const API_URL = `${BACKEND_BASE}/api/posts`;
 
   try {
     const res = await fetch(API_URL);
     
-    // Kiểm tra nếu request thất bại
     if (!res.ok) {
       throw new Error(`Failed to fetch posts: ${res.status}`);
     }
 
-    const posts = await res.json();
+    const rawPosts = await res.json();
+    // Enrich posts using the shared utility — same code path as CSR.
+    const posts = enrichAndSortPosts(rawPosts);
+    const derivedTags = extractTags(posts);
 
     const images = [
       "https://ie213vqhbucket.sgp1.cdn.digitaloceanspaces.com/Seminar/Bitexco%20Quan%201.jpg",
       "https://ie213vqhbucket.sgp1.cdn.digitaloceanspaces.com/Seminar/Dinh%20Doc%20Lap%20Quan%201.jpg",
-      "https://ie213vqhbucket.sgp1.cdn.digitaloceanspaces.com/Seminar/Landmark%20Binh%20Thanh.jpg"
+      "https://ie213vqhbucket.sgp1.cdn.digitaloceanspaces.com/Seminar/Landmark%20Binh%20Thanh.jpg",
     ];
 
     return {
       props: {
         posts,
         images,
-        tags: ["ISR", "On-demand", "Webhook", "Optimization"],
+        tags: ["ISR", "On-demand", "Webhook", "Optimization", ...derivedTags],
         timeStamp: new Date().toLocaleString('vi-VN')
       },
-      // Giữ revalidate: false vì bạn dùng On-demand Revalidation (Webhook)
-      revalidate: false 
+      revalidate: false
     };
   } catch (error) {
     console.error("❌ ISR Fetch Error:", error.message);

@@ -2,6 +2,7 @@ import Head from 'next/head';
 import Navbar from '../../components/Navbar';
 import BlogGrid from '../../components/BlogGrid';
 import MegaFooter from '../../components/MegaFooter';
+import { enrichAndSortPosts, extractTags } from '../../lib/postUtils';
 
 export default function SSGHomepage({ posts, timeStamp }) {
   return (
@@ -32,14 +33,15 @@ export async function getStaticProps() {
   const BACKEND_BASE = process.env.INTERNAL_BACKEND_URL || 'http://127.0.0.1:5123';
   try {
     const res = await fetch(`${BACKEND_BASE}/api/posts`);
-    const posts = await res.json();
+    const rawPosts = await res.json();
+    // Enrich posts using the shared utility — same code path as CSR.
+    const posts = enrichAndSortPosts(rawPosts);
 
     return {
       props: {
         posts,
         timeStamp: new Date().toLocaleString('vi-VN')
       },
-      // revalidate: false đảm bảo Next.js không bao giờ tự ý vẽ lại trang này
       revalidate: false 
     };
   } catch (error) {

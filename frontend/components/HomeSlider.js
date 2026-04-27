@@ -1,4 +1,6 @@
+// frontend/components/HomeSlider.js
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 
 export default function HomeSlider({ images }) {
   const [index, setIndex] = useState(0);
@@ -17,7 +19,15 @@ export default function HomeSlider({ images }) {
           key={img}
           className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${i === index ? 'opacity-100' : 'opacity-0'}`}
         >
-          <img src={img} alt="Landmark" className="w-full h-full object-cover opacity-50" />
+          <Image 
+            src={img} 
+            alt={`Saigon Landmark ${i + 1}`} 
+            fill
+            sizes="100vw"
+            style={{ objectFit: 'cover' }}
+            className="opacity-50"
+            priority={i === 0} 
+          />
         </div>
       ))}
       <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent"></div>
