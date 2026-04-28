@@ -16,284 +16,16 @@ import {
   getLatestPosts,
   categoryFrequency,
 } from '../../lib/postUtils';
-
-
-const pageLoadStart = typeof performance !== 'undefined' ? performance.now() : 0;
+import RenderBenchmark from '../../components/RenderBenchmark';
 
 const CACHE_KEY = 'csr_posts_cache';
-const CACHE_TTL = 60_000; // 1 minute
+const CACHE_TTL = 60_000;
 
 const SLIDER_IMAGES = [
   "https://ie213vqhbucket.sgp1.cdn.digitaloceanspaces.com/Seminar/Bitexco%20Quan%201.jpg",
   "https://ie213vqhbucket.sgp1.cdn.digitaloceanspaces.com/Seminar/Dinh%20Doc%20Lap%20Quan%201.jpg",
   "https://ie213vqhbucket.sgp1.cdn.digitaloceanspaces.com/Seminar/Landmark%20Binh%20Thanh.jpg",
 ];
-
-// ─── Benchmark constants ──────────────────────────────────────────────────────
-
-const MODE_COLORS = {
-  SSG: { bg: 'bg-emerald-500', text: 'text-emerald-400', border: 'border-emerald-500', light: 'bg-emerald-50', dark: 'text-emerald-600' },
-  SSR: { bg: 'bg-rose-500',    text: 'text-rose-400',    border: 'border-rose-500',    light: 'bg-rose-50',    dark: 'text-rose-600'    },
-  ISR: { bg: 'bg-blue-500',    text: 'text-blue-400',    border: 'border-blue-500',    light: 'bg-blue-50',    dark: 'text-blue-600'    },
-  CSR: { bg: 'bg-amber-500',   text: 'text-amber-400',   border: 'border-amber-500',   light: 'bg-amber-50',   dark: 'text-amber-600'   },
-};
-
-const THRESHOLDS = {
-  FCP:  { good: 1800,  poor: 3000  },
-  LCP:  { good: 2500,  poor: 4000  },
-  TBT:  { good: 200,   poor: 600   },
-  TTFB: { good: 800,   poor: 1800  },
-  HYD:  { good: 300,   poor: 1000  },
-};
-
-function getRating(metric, value) {
-  if (value === null || value === undefined) return null;
-  const t = THRESHOLDS[metric];
-  if (!t) return 'good';
-  if (value <= t.good) return 'good';
-  if (value <= t.poor) return 'needs-improvement';
-  return 'poor';
-}
-
-const RATING_STYLES = {
-  'good':              { label: 'Good', color: 'text-emerald-600', bg: 'bg-emerald-100', dot: 'bg-emerald-500' },
-  'needs-improvement': { label: 'Fair', color: 'text-amber-600',   bg: 'bg-amber-100',   dot: 'bg-amber-500'   },
-  'poor':              { label: 'Poor', color: 'text-red-600',     bg: 'bg-red-100',     dot: 'bg-red-500'     },
-};
-
-// ─── MetricCard ───────────────────────────────────────────────────────────────
-
-function MetricCard({ label, value, unit = 'ms', metric, description }) {
-  const rating = getRating(metric, value);
-  const rs = rating ? RATING_STYLES[rating] : null;
-  const displayValue = value !== null && value !== undefined ? Math.round(value) : '—';
-
-  return (
-    <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <span className="text-[9px] font-black tracking-[0.2em] uppercase text-slate-400 font-mono">{label}</span>
-        {rs && (
-          <span className={`text-[8px] font-black tracking-[0.15em] uppercase px-2 py-0.5 rounded-full ${rs.color} ${rs.bg} flex items-center gap-1`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${rs.dot}`} />
-            {rs.label}
-          </span>
-        )}
-      </div>
-      <div className="flex items-end gap-1">
-        <span className="text-2xl font-black text-slate-900 tabular-nums leading-none">
-          {displayValue === '—' ? '—' : displayValue.toLocaleString()}
-        </span>
-        {displayValue !== '—' && (
-          <span className="text-xs text-slate-400 font-mono mb-0.5">{unit}</span>
-        )}
-      </div>
-      {value !== null && value !== undefined && THRESHOLDS[metric] && (
-        <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-700 ${
-              rating === 'good' ? 'bg-emerald-500' :
-              rating === 'needs-improvement' ? 'bg-amber-500' : 'bg-red-500'
-            }`}
-            style={{ width: `${Math.min((value / THRESHOLDS[metric].poor) * 100, 100)}%` }}
-          />
-        </div>
-      )}
-      <p className="text-[9px] text-slate-400 leading-relaxed">{description}</p>
-    </div>
-  );
-}
-
-// ─── RenderBenchmark ─────────────────────────────────────────────────────────
-
-function RenderBenchmark({ mode = 'CSR', startTime, serverMs }) {
-  const colors  = MODE_COLORS[mode] || MODE_COLORS.CSR;
-  const meta    = getRenderModeMeta(mode); // from postUtils
-  const mountTime = useRef(typeof performance !== 'undefined' ? performance.now() : 0);
-
-  const [metrics, setMetrics] = useState({ fcp: null, lcp: null, tbt: null, ttfb: null, hyd: null });
-  const [collecting, setCollecting] = useState(true);
-  const [expanded, setExpanded]     = useState(false);
-
-  useEffect(() => {
-    if (typeof performance === 'undefined') return;
-
-    const hydrationTime = performance.now() - (startTime || mountTime.current);
-    const collected = { hyd: hydrationTime };
-
-    const navEntry = performance.getEntriesByType('navigation')[0];
-    if (navEntry) collected.ttfb = navEntry.responseStart - navEntry.requestStart;
-
-    let fcpDone = false, lcpDone = false;
-    const checkDone = () => { if (fcpDone && lcpDone) setCollecting(false); };
-
-    try {
-      const fcpObs = new PerformanceObserver((list) => {
-        const fcp = list.getEntries().find(e => e.name === 'first-contentful-paint');
-        if (fcp) {
-          setMetrics(prev => ({ ...prev, fcp: fcp.startTime }));
-          fcpDone = true; checkDone(); fcpObs.disconnect();
-        }
-      });
-      fcpObs.observe({ type: 'paint', buffered: true });
-    } catch { fcpDone = true; }
-
-    try {
-      const lcpObs = new PerformanceObserver((list) => {
-        const last = list.getEntries().at(-1);
-        if (last) setMetrics(prev => ({ ...prev, lcp: last.startTime }));
-      });
-      lcpObs.observe({ type: 'largest-contentful-paint', buffered: true });
-      const finaliseLcp = () => { lcpDone = true; checkDone(); lcpObs.disconnect(); };
-      setTimeout(finaliseLcp, 5000);
-      ['click', 'keydown', 'scroll'].forEach(e => window.addEventListener(e, finaliseLcp, { once: true }));
-    } catch { lcpDone = true; }
-
-    let tbt = 0;
-    try {
-      const tbtObs = new PerformanceObserver((list) => {
-        list.getEntries().forEach(entry => { tbt += entry.duration - 50; });
-        setMetrics(prev => ({ ...prev, tbt: Math.max(tbt, 0) }));
-      });
-      tbtObs.observe({ type: 'longtask', buffered: true });
-      setTimeout(() => tbtObs.disconnect(), 8000);
-    } catch {}
-
-    setMetrics(prev => ({ ...prev, ...collected }));
-    const timeout = setTimeout(() => setCollecting(false), 6000);
-    return () => clearTimeout(timeout);
-  }, [startTime]);
-
-  const scoreMetrics = [
-    { v: metrics.fcp,  w: 0.25, t: THRESHOLDS.FCP  },
-    { v: metrics.lcp,  w: 0.35, t: THRESHOLDS.LCP  },
-    { v: metrics.tbt,  w: 0.25, t: THRESHOLDS.TBT  },
-    { v: metrics.ttfb, w: 0.15, t: THRESHOLDS.TTFB },
-  ];
-  const available = scoreMetrics.filter(m => m.v !== null);
-  const score = available.length > 0
-    ? Math.round(available.reduce((acc, m) => {
-        const ratio = Math.min(m.v / m.t.poor, 1);
-        return acc + (1 - ratio) * (m.w / available.reduce((s, x) => s + x.w, 0));
-      }, 0) * 100)
-    : null;
-  const scoreColor = score === null ? 'text-slate-400' : score >= 90 ? 'text-emerald-500' : score >= 50 ? 'text-amber-500' : 'text-red-500';
-
-  return (
-    <div className={`border-t-4 ${colors.border} bg-slate-50 relative z-40`}>
-      <div
-        className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between cursor-pointer select-none"
-        onClick={() => setExpanded(e => !e)}
-      >
-        <div className="flex items-center gap-3">
-          <div className={`${colors.bg} text-slate-900 text-[9px] font-black tracking-[0.2em] uppercase px-2 py-1 rounded`}>{mode}</div>
-          <span className="text-[10px] font-black tracking-[0.15em] uppercase text-slate-500">Performance Benchmark</span>
-          {collecting && (
-            <span className="flex items-center gap-1.5 text-[9px] text-slate-400 font-mono">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              Measuring...
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-4">
-          {score !== null && (
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] text-slate-400 font-mono uppercase tracking-widest">Score</span>
-              <span className={`text-xl font-black tabular-nums ${scoreColor}`}>{score}</span>
-              <span className="text-[9px] text-slate-300">/100</span>
-            </div>
-          )}
-          <div className="hidden md:flex items-center gap-3 text-[9px] font-mono text-slate-500">
-            {metrics.fcp  !== null && <span>FCP <b className="text-slate-700">{Math.round(metrics.fcp)}ms</b></span>}
-            {metrics.lcp  !== null && <span>LCP <b className="text-slate-700">{Math.round(metrics.lcp)}ms</b></span>}
-            {metrics.tbt  !== null && <span>TBT <b className="text-slate-700">{Math.round(metrics.tbt)}ms</b></span>}
-          </div>
-          <span className="text-slate-400 text-xs">{expanded ? '▲' : '▼'}</span>
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="max-w-6xl mx-auto px-6 pb-8">
-
-          {/* Description from RENDER_MODE_META — no hardcoded strings */}
-          <div className={`${colors.light} border ${colors.border} border-opacity-30 rounded-xl p-4 mb-4 text-xs`}>
-            <p className={`font-black uppercase tracking-[0.15em] text-[9px] ${colors.dark} mb-1`}>
-              {meta.fullName}
-            </p>
-            <p className="text-slate-600 leading-relaxed mb-3">{meta.description}</p>
-            <div className="flex gap-6">
-              <div>
-                <p className="text-[8px] font-black tracking-widest text-emerald-600 uppercase mb-1">Pros</p>
-                <ul className="space-y-0.5">
-                  {meta.pros.map(p => (
-                    <li key={p} className="text-[9px] text-slate-500 flex items-center gap-1">
-                      <span className="text-emerald-500">✓</span> {p}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <p className="text-[8px] font-black tracking-widest text-red-500 uppercase mb-1">Cons</p>
-                <ul className="space-y-0.5">
-                  {meta.cons.map(c => (
-                    <li key={c} className="text-[9px] text-slate-500 flex items-center gap-1">
-                      <span className="text-red-400">✕</span> {c}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          {/* Metric cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-            <MetricCard label="FCP"       metric="FCP"  value={metrics.fcp}  description="First Contentful Paint — thời gian đến khi browser vẽ nội dung đầu tiên." />
-            <MetricCard label="LCP"       metric="LCP"  value={metrics.lcp}  description="Largest Contentful Paint — thời gian đến khi phần tử lớn nhất hiển thị." />
-            <MetricCard label="TBT"       metric="TBT"  value={metrics.tbt}  description="Total Blocking Time — tổng thời gian main thread bị block bởi JS." />
-            <MetricCard label="TTFB"      metric="TTFB" value={metrics.ttfb} description="Time to First Byte — thời gian server phản hồi byte đầu tiên." />
-            <MetricCard label="Hydration" metric="HYD"  value={metrics.hyd}  description="Thời gian React mount component từ khi JS bắt đầu chạy." />
-          </div>
-
-          {serverMs !== undefined && serverMs !== null && (
-            <div className="bg-slate-800 text-white rounded-xl p-4 mb-4 flex items-center justify-between">
-              <div>
-                <p className="text-[9px] font-mono text-slate-400 uppercase tracking-widest mb-1">Server Render Time</p>
-                <p className="text-lg font-black">{serverMs} <span className="text-xs text-slate-400 font-mono">ms</span></p>
-              </div>
-              <p className="text-[10px] text-slate-400 max-w-xs text-right leading-relaxed">
-                Thời gian server tạo HTML trước khi gửi về browser.
-                {mode === 'CSR' && ' N/A — CSR không có server render.'}
-              </p>
-            </div>
-          )}
-
-          {score !== null && (
-            <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[9px] font-black tracking-[0.2em] uppercase text-slate-400 font-mono">Estimated Lighthouse Score</span>
-                <span className={`text-lg font-black ${scoreColor}`}>{score}/100</span>
-              </div>
-              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-1000 ${score >= 90 ? 'bg-emerald-500' : score >= 50 ? 'bg-amber-500' : 'bg-red-500'}`}
-                  style={{ width: `${score}%` }}
-                />
-              </div>
-              <p className="text-[9px] text-slate-400 mt-2">
-                * Ước tính dựa trên FCP, LCP, TBT, TTFB được đo thực tế. Không phải điểm Lighthouse chính thức.
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Inlined components ───────────────────────────────────────────────────────
-// All shared components are inlined here instead of imported from /components/.
-// This means Next.js bundles them into this page's JS chunk rather than
-// splitting them — simulating the real-world SPA (CRA) behavior where the
-// entire component tree ships in one bundle before any rendering can begin.
 
 function InlinedNavbar() {
   const router = useRouter();
@@ -339,15 +71,7 @@ function InlinedHomeSlider({ images }) {
     <div className="absolute inset-0 w-full h-full bg-slate-900">
       {images?.map((img, i) => (
         <div key={img} className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${i === index ? 'opacity-100' : 'opacity-0'}`}>
-          <Image
-            src={img}
-            alt={`Saigon Landmark ${i + 1}`}
-            fill
-            sizes="100vw"
-            style={{ objectFit: 'cover' }}
-            className="opacity-50"
-            priority={i === 0}
-          />
+          <Image src={img} alt={`Saigon Landmark ${i + 1}`} fill sizes="100vw" style={{ objectFit: 'cover' }} className="opacity-50" priority={i === 0} />
         </div>
       ))}
       <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent" />
@@ -363,7 +87,6 @@ function InlinedBlogGrid({ posts }) {
       </div>
     );
   }
-
   return (
     <div className="grid md:grid-cols-3 gap-8">
       {posts.map((post) => (
@@ -376,9 +99,7 @@ function InlinedBlogGrid({ posts }) {
               <span className="text-[10px] text-slate-400 font-mono">{post.formattedDate || post.publishedAt || post.date}</span>
             </div>
             <h3 className="text-xl font-bold mb-2 text-slate-900 group-hover:text-amber-600 transition-colors line-clamp-2">{post.title}</h3>
-            {/* Uses enriched shortExcerpt from postUtils instead of raw excerpt */}
             <p className="text-slate-500 text-sm leading-relaxed mb-2 line-clamp-3">{post.shortExcerpt || post.excerpt}</p>
-            {/* Reading time — from enrichPost in postUtils */}
             {post.readingTime && (
               <p className="text-[10px] text-slate-400 font-mono mb-6">{post.readingTime}</p>
             )}
@@ -386,7 +107,6 @@ function InlinedBlogGrid({ posts }) {
               <span className="text-amber-600 text-xs font-bold group-hover:underline flex items-center gap-2">
                 READ MORE <span>&rarr;</span>
               </span>
-              {/* Relative date — from postUtils timeAgo */}
               {post.relativeDate && (
                 <span className="text-[9px] text-slate-400 font-mono">{post.relativeDate}</span>
               )}
@@ -403,8 +123,6 @@ function InlinedMegaFooter({ tags, stats }) {
     <footer className="bg-slate-900 text-slate-300 pt-16 pb-8 border-t-8 border-amber-500 mt-auto">
       <div className="max-w-6xl mx-auto px-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-12 mb-12 border-b border-slate-700 pb-12">
-
-          {/* Post stats from computePostStats */}
           {stats && (
             <div>
               <h4 className="text-white font-bold mb-4 uppercase text-sm tracking-[0.2em] border-b border-amber-500/30 pb-2 italic">
@@ -426,8 +144,6 @@ function InlinedMegaFooter({ tags, stats }) {
               </div>
             </div>
           )}
-
-          {/* Category breakdown from categoryFrequency */}
           {stats?.categoryBreakdown && (
             <div>
               <h4 className="text-white font-bold mb-4 uppercase text-sm tracking-[0.2em] border-b border-amber-500/30 pb-2 italic">
@@ -443,8 +159,6 @@ function InlinedMegaFooter({ tags, stats }) {
               </div>
             </div>
           )}
-
-          {/* Tag cloud */}
           <div>
             <h4 className="text-white font-bold mb-4 uppercase text-sm tracking-[0.2em] border-b border-amber-500/30 pb-2 italic">
               Key Concepts
@@ -458,7 +172,6 @@ function InlinedMegaFooter({ tags, stats }) {
             </div>
           </div>
         </div>
-
         <div className="flex flex-col md:flex-row justify-between items-center text-[10px] opacity-50 font-mono">
           <div className="flex gap-4">
             <span>© 2026 UIT SEMINAR</span>
@@ -466,17 +179,15 @@ function InlinedMegaFooter({ tags, stats }) {
             <span>NEXT.JS v14.2 STABLE</span>
           </div>
           <div className="mt-4 md:mt-0 flex gap-6">
-            <Link href="/docs/hybrid"    className="hover:text-amber-400 transition-colors uppercase">Giới thiệu</Link>
+            <Link href="/docs/hybrid" className="hover:text-amber-400 transition-colors uppercase">Giới thiệu</Link>
             <Link href="/docs/menn-flow" className="hover:text-amber-400 transition-colors uppercase">Lý thuyết</Link>
-            <Link href="/docs/vitals"    className="hover:text-amber-400 transition-colors uppercase">Thực nghiệm</Link>
+            <Link href="/docs/vitals" className="hover:text-amber-400 transition-colors uppercase">Thực nghiệm</Link>
           </div>
         </div>
       </div>
     </footer>
   );
 }
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CSRPage() {
   const [ready, setReady]           = useState(false);
@@ -490,7 +201,6 @@ export default function CSRPage() {
 
     const bootstrap = async () => {
       try {
-      
         const cached = cacheGet(CACHE_KEY);
         let rawPosts = cached;
 
@@ -501,7 +211,6 @@ export default function CSRPage() {
           cacheSet(CACHE_KEY, rawPosts, CACHE_TTL);
         }
 
-      
         const enriched    = enrichAndSortPosts(rawPosts);
         const derivedTags = extractTags(enriched);
         const postStats   = computePostStats(rawPosts);
@@ -528,18 +237,13 @@ export default function CSRPage() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans flex flex-col">
       <Head>
-        {/* Note: CSR meta tags are useless for SEO — Googlebot can't read them
-            because the page is blank until JS executes. SSG/ISR/SSR pages have
-            these tags available immediately in the server response HTML. */}
         <title>{pageTitle}</title>
       </Head>
 
       <InlinedNavbar />
 
-      {/* Benchmark sits right below navbar — always visible regardless of load state */}
-      <RenderBenchmark mode="CSR" startTime={pageLoadStart} />
+      <RenderBenchmark mode="CSR" />
 
-      {/* ── LOADING STATE: skeleton shown while JS fetches and processes data ── */}
       {!ready ? (
         <>
           <section className="relative h-[55vh] flex items-center justify-center overflow-hidden bg-slate-200 animate-pulse">
@@ -572,7 +276,6 @@ export default function CSRPage() {
           </main>
         </>
       ) : (
-        // ── READY STATE: all data fetched and enriched ──
         <>
           <div className="bg-amber-500 text-slate-900 px-6 py-1 flex justify-between items-center text-[10px] font-bold tracking-widest uppercase shadow-sm">
             <div className="flex items-center gap-2">
@@ -618,4 +321,3 @@ export default function CSRPage() {
     </div>
   );
 }
-

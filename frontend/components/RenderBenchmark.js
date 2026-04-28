@@ -1,352 +1,401 @@
 /**
- * RenderBenchmark Component
+ * RenderInfo.js — /frontend/components/RenderInfo.js
  *
- * Đo lường các chỉ số Web Vitals thực tế bằng Browser Performance API.
- * Không có số giả — tất cả đều được đo trực tiếp từ trình duyệt.
- *
- * Metrics được đo:
- * - TTFB  : Time to First Byte (chỉ có trên SSR/ISR/SSG — response từ server)
- * - FCP   : First Contentful Paint (PerformanceObserver)
- * - LCP   : Largest Contentful Paint (PerformanceObserver)
- * - TBT   : Total Blocking Time (ước tính từ Long Tasks API)
- * - Hydration Time : Thời gian từ khi JS bắt đầu chạy đến khi component mount xong
+ * Static educational panel. No Performance API, no measurements, no scores.
+ * Shows what each rendering mode does, its flow, strengths, and weaknesses.
  *
  * Usage:
- *   <RenderBenchmark mode="ISR" color="rose" startTime={pageLoadStart} />
+ *   import RenderInfo from '../../components/RenderInfo';
+ *   <RenderInfo mode="SSR" serverMs={serverMs} />
  *
  * Props:
- *   mode       : "SSG" | "SSR" | "ISR" | "CSR"
- *   color      : Tailwind color name used in your page (emerald, rose, blue, amber)
- *   startTime  : performance.now() captured as early as possible (top of page file)
- *   serverMs   : (optional) server render time passed via getServerSideProps/getStaticProps
+ *   mode     : "SSG" | "SSR" | "ISR" | "CSR"
+ *   serverMs : (SSR only) actual ms from getServerSideProps
+ *   buildTime: (SSG/ISR) timestamp string from getStaticProps
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
+import Link from 'next/link';
 
-// Màu sắc theo từng rendering mode
-const MODE_COLORS = {
-  SSG: { bg: 'bg-emerald-500', text: 'text-emerald-400', border: 'border-emerald-500', light: 'bg-emerald-50', dark: 'text-emerald-600' },
-  SSR: { bg: 'bg-rose-500',    text: 'text-rose-400',    border: 'border-rose-500',    light: 'bg-rose-50',    dark: 'text-rose-600'    },
-  ISR: { bg: 'bg-blue-500',    text: 'text-blue-400',    border: 'border-blue-500',    light: 'bg-blue-50',    dark: 'text-blue-600'    },
-  CSR: { bg: 'bg-amber-500',   text: 'text-amber-400',   border: 'border-amber-500',   light: 'bg-amber-50',   dark: 'text-amber-600'   },
+const MODE_DATA = {
+  SSG: {
+    label:    'Static Site Generation',
+    short:    'SSG',
+    color:    'emerald',
+    border:   'border-emerald-500',
+    bg:       'bg-emerald-500',
+    lightBg:  'bg-emerald-50',
+    darkText: 'text-emerald-700',
+    tag:      'bg-emerald-100 text-emerald-700 border-emerald-200',
+
+    tagline: 'HTML được build sẵn — phục vụ từ CDN với tốc độ tối đa.',
+
+    flow: [
+      { label: 'next build', desc: 'Next.js chạy getStaticProps, fetch DB, render HTML' },
+      { label: 'Output', desc: 'File .html tĩnh được lưu vào thư mục .next' },
+      { label: 'Deploy', desc: 'File tĩnh được đẩy lên CDN (Vercel, Cloudflare, S3…)' },
+      { label: 'User request', desc: 'CDN trả file ngay lập tức — không chạy bất kỳ code nào' },
+      { label: 'Browser', desc: 'Nhận HTML đầy đủ, vẽ trang, tải JS để hydrate' },
+    ],
+
+    strengths: [
+      'TTFB cực thấp — CDN trả file trong vài ms, không có server compute',
+      'FCP và LCP tốt nhất — HTML đầy đủ từ byte đầu tiên, browser vẽ ngay',
+      'Không tốn server resource mỗi request — chi phí infrastructure thấp',
+      'Dễ cache 100% trên CDN — toàn bộ trang là file tĩnh',
+      'SEO hoàn hảo — Googlebot đọc được HTML ngay không cần JS',
+      'Uptime cao — không phụ thuộc vào server/DB ở runtime',
+    ],
+
+    weaknesses: [
+      'Dữ liệu đóng băng tại thời điểm build — bài viết mới không xuất hiện cho đến khi rebuild',
+      'Phải chạy lại next build và redeploy để cập nhật nội dung',
+      'Build time tăng theo số trang — site lớn có thể mất nhiều phút để build',
+      'Không phù hợp với nội dung cá nhân hoá (dashboard, giỏ hàng, trang user)',
+    ],
+
+    bestFor: 'Blog, landing page, tài liệu, marketing site — bất kỳ nội dung nào không thay đổi theo từng user hay từng request.',
+
+    vitals: {
+      TTFB:  { expect: '~10–50ms',    rating: 'good',    note: 'CDN phản hồi ngay, không có server processing' },
+      FCP:   { expect: '~200–600ms',  rating: 'good',    note: 'HTML đầy đủ → browser vẽ ngay khi nhận bytes đầu' },
+      LCP:   { expect: '~400–900ms',  rating: 'good',    note: 'Ảnh hero trong HTML → fetch song song với parse' },
+      TBT:   { expect: '~100–350ms',  rating: 'fair',    note: 'JS hydration chạy sau khi trang đã hiển thị' },
+    },
+  },
+
+  SSR: {
+    label:    'Server-Side Rendering',
+    short:    'SSR',
+    color:    'rose',
+    border:   'border-rose-500',
+    bg:       'bg-rose-500',
+    lightBg:  'bg-rose-50',
+    darkText: 'text-rose-700',
+    tag:      'bg-rose-100 text-rose-700 border-rose-200',
+
+    tagline: 'Server tạo HTML mới cho mỗi request — dữ liệu luôn mới nhất, TTFB cao hơn.',
+
+    flow: [
+      { label: 'User request', desc: 'Browser gửi HTTP request đến Next.js server' },
+      { label: 'getServerSideProps', desc: 'Server fetch MongoDB, enrich posts, chuẩn bị data' },
+      { label: 'React render', desc: 'Next.js render component tree thành HTML string trên server' },
+      { label: 'Send HTML', desc: 'Server gửi HTML hoàn chỉnh — user thấy blank screen cho đến bước này' },
+      { label: 'Browser paint', desc: 'Browser nhận HTML, vẽ trang, tải JS để hydrate' },
+      { label: 'Hydration', desc: 'React attach event listeners vào DOM có sẵn' },
+    ],
+
+    strengths: [
+      'Dữ liệu luôn mới nhất — mỗi request lấy trực tiếp từ DB',
+      'SEO hoàn hảo — HTML đầy đủ gửi về trước khi JS chạy',
+      'FCP và LCP tốt hơn CSR — browser vẽ từ HTML server-rendered, không chờ JS fetch data',
+      'Phù hợp với nội dung cá nhân hoá theo user (session, auth)',
+      'Không cần rebuild khi DB thay đổi — request tiếp theo tự lấy data mới',
+    ],
+
+    weaknesses: [
+      'TTFB cao hơn SSG/ISR — user chờ server xử lý trước khi nhận byte đầu tiên',
+      'Mỗi request tốn server resource — chi phí infrastructure cao hơn SSG',
+      'Khó cache — response khác nhau theo thời gian/user nên CDN cache ít hiệu quả',
+      'Server trở thành bottleneck khi traffic cao — cần scale server thay vì chỉ scale CDN',
+      'DB down = trang down — không có fallback tĩnh như SSG/ISR',
+    ],
+
+    bestFor: 'Trang cần data realtime mỗi request: dashboard cá nhân, trang admin, nội dung phụ thuộc vào session người dùng.',
+
+    vitals: {
+      TTFB:  { expect: '~300–1500ms', rating: 'poor',   note: 'DNS + TCP + server fetch DB + render HTML — tất cả trước byte đầu tiên' },
+      FCP:   { expect: '~500–1500ms', rating: 'fair',   note: 'FCP = TTFB + browser parse time — bị kéo lên bởi TTFB' },
+      LCP:   { expect: '~700–1800ms', rating: 'fair',   note: 'Ảnh trong HTML → fetch song song, nhưng bị delay bởi TTFB' },
+      TBT:   { expect: '~100–350ms',  rating: 'fair',   note: 'JS hydration tương tự SSG — không block initial paint' },
+    },
+  },
+
+  ISR: {
+    label:    'Incremental Static Regeneration',
+    short:    'ISR',
+    color:    'blue',
+    border:   'border-blue-500',
+    bg:       'bg-blue-500',
+    lightBg:  'bg-blue-50',
+    darkText: 'text-blue-700',
+    tag:      'bg-blue-100 text-blue-700 border-blue-200',
+
+    tagline: 'Tốc độ của SSG + khả năng cập nhật của SSR — không cần rebuild toàn bộ site.',
+
+    flow: [
+      { label: 'next build', desc: 'Build lần đầu giống SSG — tạo HTML tĩnh, cache lên CDN' },
+      { label: 'User request (cache HIT)', desc: 'CDN trả HTML cached ngay lập tức — nhanh như SSG' },
+      { label: 'Webhook trigger', desc: 'Backend gọi /api/revalidate sau khi tạo/sửa bài viết' },
+      { label: 'Background regen', desc: 'Next.js fetch DB và render lại trang ở background — không block user nào' },
+      { label: 'Cache update', desc: 'HTML mới thay thế cache cũ — request tiếp theo nhận bản mới' },
+    ],
+
+    strengths: [
+      'TTFB và FCP ngang SSG — cache hit phục vụ từ CDN ngay lập tức',
+      'Dữ liệu cập nhật on-demand qua webhook — không bao giờ stale quá lâu',
+      'Không cần rebuild toàn bộ site — chỉ regenerate đúng trang cần thiết',
+      'Regeneration ở background — không có user nào phải chờ lúc rebuild',
+      'SEO hoàn hảo như SSG — HTML đầy đủ từ CDN',
+      'Chi phí server thấp — chỉ tốn compute khi webhook trigger, không phải mỗi request',
+    ],
+
+    weaknesses: [
+      'Phức tạp hơn SSG — cần setup webhook endpoint và logic revalidate',
+      'Cửa sổ stale ngắn: user đầu tiên sau webhook nhận bản cũ, user thứ hai mới có bản mới',
+      'Cần backend hỗ trợ gọi webhook khi data thay đổi — thêm điểm có thể fail',
+      'Nếu webhook không gửi được, trang sẽ không bao giờ cập nhật tự động',
+    ],
+
+    bestFor: 'Blog, e-commerce, news site — nội dung thay đổi không liên tục và không cần realtime tuyệt đối mỗi request.',
+
+    vitals: {
+      TTFB:  { expect: '~10–50ms',    rating: 'good',    note: 'Cache hit = CDN response ngay — giống hệt SSG' },
+      FCP:   { expect: '~200–600ms',  rating: 'good',    note: 'HTML cached đầy đủ → browser vẽ ngay như SSG' },
+      LCP:   { expect: '~400–900ms',  rating: 'good',    note: 'Ảnh trong cached HTML → fetch song song' },
+      TBT:   { expect: '~100–350ms',  rating: 'fair',    note: 'JS hydration như SSG/SSR — không block paint' },
+    },
+  },
+
+  CSR: {
+    label:    'Client-Side Rendering',
+    short:    'CSR',
+    color:    'amber',
+    border:   'border-amber-500',
+    bg:       'bg-amber-500',
+    lightBg:  'bg-amber-50',
+    darkText: 'text-amber-700',
+    tag:      'bg-amber-100 text-amber-700 border-amber-200',
+
+    tagline: 'Server chỉ trả HTML rỗng — mọi thứ xảy ra trong browser, sau khi JS load xong.',
+
+    flow: [
+      { label: 'User request', desc: 'Browser nhận HTML rỗng (<div id="__next"></div>) từ Next.js' },
+      { label: 'Tải JS bundle', desc: 'Browser download toàn bộ JS bundle (component tree + postUtils + React)' },
+      { label: 'Parse & execute JS', desc: 'Browser parse và chạy JS — main thread bị block trong bước này' },
+      { label: 'React mount', desc: 'React khởi tạo component, gọi useEffect' },
+      { label: 'Fetch data', desc: 'Browser gọi /api/blog-proxy → Next.js → Express → MongoDB' },
+      { label: 'Preload images', desc: 'Đợi ảnh hero load xong trước khi render (trong implementation này)' },
+      { label: 'Render UI', desc: 'React render toàn bộ trang — user mới thấy nội dung lần đầu' },
+    ],
+
+    strengths: [
+      'TTFB cực thấp — server chỉ trả file HTML rỗng, không có processing',
+      'Giảm tải server hoàn toàn — mọi compute xảy ra trên client',
+      'Backend URL ẩn — request đi qua Next.js proxy, client không biết Express server ở đâu',
+      'Trải nghiệm app-like sau khi load — navigation tiếp theo rất nhanh (SPA behavior)',
+      'Dễ implement auth và protected routes — không có gì được render trên server',
+    ],
+
+    weaknesses: [
+      'FCP và LCP tệ nhất — user thấy màn hình trắng/spinner cho đến khi JS + fetch hoàn tất',
+      'SEO kém — Googlebot thấy HTML rỗng, không crawl được nội dung',
+      'Phụ thuộc JS — tắt JS hoặc JS lỗi = trang trắng hoàn toàn',
+      'Ảnh hero chỉ được fetch SAU KHI JS render — LCP bị delay nghiêm trọng',
+      'Bundle lớn block main thread — TBT cao hơn SSG/SSR/ISR',
+      'Không thể dùng HTTP cache cho nội dung động — mỗi lần vào là fetch lại',
+    ],
+
+    bestFor: 'Admin dashboard, trang sau login, công cụ nội bộ — bất kỳ nơi nào SEO không quan trọng và cần bảo mật backend.',
+
+    vitals: {
+      TTFB:  { expect: '~5–20ms',      rating: 'good',  note: 'HTML rỗng — server không làm gì cả. Nhưng đây là con số gây hiểu nhầm' },
+      FCP:   { expect: '~1500–4000ms', rating: 'poor',  note: 'Chờ JS tải + chạy + fetch + render — user thấy trắng trong suốt thời gian này' },
+      LCP:   { expect: '~2000–5000ms', rating: 'poor',  note: 'Ảnh hero không tồn tại trong HTML ban đầu — chỉ xuất hiện sau khi JS render' },
+      TBT:   { expect: '~300–800ms',   rating: 'poor',  note: 'JS bundle lớn chạy trên main thread trước khi bất cứ thứ gì hiển thị' },
+    },
+  },
 };
 
-// Ngưỡng đánh giá theo chuẩn Google Lighthouse
-const THRESHOLDS = {
-  FCP:  { good: 1800,  poor: 3000  },
-  LCP:  { good: 2500,  poor: 4000  },
-  TBT:  { good: 200,   poor: 600   },
-  TTFB: { good: 800,   poor: 1800  },
-  HYD:  { good: 300,   poor: 1000  },
+const RATING_STYLE = {
+  good: 'text-emerald-600 bg-emerald-100',
+  fair: 'text-amber-600 bg-amber-100',
+  poor: 'text-red-600 bg-red-100',
 };
 
-function getRating(metric, value) {
-  if (value === null || value === undefined) return null;
-  const t = THRESHOLDS[metric];
-  if (!t) return 'good';
-  if (value <= t.good) return 'good';
-  if (value <= t.poor) return 'needs-improvement';
-  return 'poor';
-}
+const NAV_LINKS = [
+  { name: 'SSG', path: '/ssg/homepage' },
+  { name: 'SSR', path: '/ssr/homepage' },
+  { name: 'ISR', path: '/isr/homepage' },
+  { name: 'CSR', path: '/csr/homepage' },
+];
 
-const RATING_STYLES = {
-  'good':               { label: 'Good',   color: 'text-emerald-600', bg: 'bg-emerald-100', dot: 'bg-emerald-500' },
-  'needs-improvement':  { label: 'Fair',   color: 'text-amber-600',   bg: 'bg-amber-100',   dot: 'bg-amber-500'   },
-  'poor':               { label: 'Poor',   color: 'text-red-600',     bg: 'bg-red-100',     dot: 'bg-red-500'     },
-};
+export default function RenderInfo({ mode = 'CSR', serverMs = null, buildTime = null }) {
+  const [open, setOpen] = useState(false);
 
-function MetricCard({ label, value, unit = 'ms', metric, description }) {
-  const rating = getRating(metric, value);
-  const rs = rating ? RATING_STYLES[rating] : null;
-  const displayValue = value !== null && value !== undefined ? Math.round(value) : '—';
+  const d = MODE_DATA[mode];
 
   return (
-    <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <span className="text-[9px] font-black tracking-[0.2em] uppercase text-slate-400 font-mono">{label}</span>
-        {rs && (
-          <span className={`text-[8px] font-black tracking-[0.15em] uppercase px-2 py-0.5 rounded-full ${rs.color} ${rs.bg} flex items-center gap-1`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${rs.dot}`} />
-            {rs.label}
-          </span>
-        )}
-      </div>
+    <div className={`border-t-4 ${d.border} bg-white`}>
 
-      <div className="flex items-end gap-1">
-        <span className="text-2xl font-black text-slate-900 tabular-nums leading-none">
-          {displayValue === '—' ? '—' : displayValue.toLocaleString()}
-        </span>
-        {displayValue !== '—' && (
-          <span className="text-xs text-slate-400 font-mono mb-0.5">{unit}</span>
-        )}
-      </div>
-
-      {/* Progress bar */}
-      {value !== null && value !== undefined && THRESHOLDS[metric] && (
-        <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-700 ${
-              rating === 'good' ? 'bg-emerald-500' :
-              rating === 'needs-improvement' ? 'bg-amber-500' : 'bg-red-500'
-            }`}
-            style={{ width: `${Math.min((value / THRESHOLDS[metric].poor) * 100, 100)}%` }}
-          />
-        </div>
-      )}
-
-      <p className="text-[9px] text-slate-400 leading-relaxed">{description}</p>
-    </div>
-  );
-}
-
-export default function RenderBenchmark({ mode = 'CSR', startTime, serverMs }) {
-  const colors = MODE_COLORS[mode] || MODE_COLORS.CSR;
-  const mountTime = useRef(performance.now());
-
-  const [metrics, setMetrics] = useState({
-    fcp:  null,
-    lcp:  null,
-    tbt:  null,
-    ttfb: null,
-    hyd:  null,
-  });
-  const [collecting, setCollecting] = useState(true);
-  const [expanded, setExpanded]     = useState(false);
-
-  useEffect(() => {
-    const hydrationTime = performance.now() - (startTime || mountTime.current);
-    const collected = { hyd: hydrationTime };
-
-    // ── TTFB từ Navigation Timing API ────────────────────────────────────────
-    const navEntry = performance.getEntriesByType('navigation')[0];
-    if (navEntry) {
-      collected.ttfb = navEntry.responseStart - navEntry.requestStart;
-    }
-
-    // ── FCP & LCP từ PerformanceObserver ─────────────────────────────────────
-    let fcpDone = false;
-    let lcpDone = false;
-
-    const checkDone = () => {
-      if (fcpDone && lcpDone) setCollecting(false);
-    };
-
-    // FCP
-    try {
-      const fcpObs = new PerformanceObserver((list) => {
-        const entries = list.getEntries();
-        const fcp = entries.find(e => e.name === 'first-contentful-paint');
-        if (fcp) {
-          setMetrics(prev => ({ ...prev, fcp: fcp.startTime }));
-          fcpDone = true;
-          checkDone();
-          fcpObs.disconnect();
-        }
-      });
-      fcpObs.observe({ type: 'paint', buffered: true });
-    } catch {
-      fcpDone = true;
-    }
-
-    // LCP
-    try {
-      const lcpObs = new PerformanceObserver((list) => {
-        const entries = list.getEntries();
-        const last = entries[entries.length - 1];
-        if (last) setMetrics(prev => ({ ...prev, lcp: last.startTime }));
-      });
-      lcpObs.observe({ type: 'largest-contentful-paint', buffered: true });
-
-      // LCP finalises on user interaction or after 5s
-      const finaliseLcp = () => {
-        lcpDone = true;
-        checkDone();
-        lcpObs.disconnect();
-      };
-      setTimeout(finaliseLcp, 5000);
-      ['click','keydown','scroll'].forEach(e =>
-        window.addEventListener(e, finaliseLcp, { once: true })
-      );
-    } catch {
-      lcpDone = true;
-    }
-
-    // ── TBT từ Long Tasks API ─────────────────────────────────────────────────
-    let tbt = 0;
-    try {
-      const tbtObs = new PerformanceObserver((list) => {
-        list.getEntries().forEach(entry => {
-          // Long task = bất kỳ task nào > 50ms. TBT = phần vượt quá 50ms
-          tbt += entry.duration - 50;
-        });
-        setMetrics(prev => ({ ...prev, tbt: Math.max(tbt, 0) }));
-      });
-      tbtObs.observe({ type: 'longtask', buffered: true });
-      setTimeout(() => tbtObs.disconnect(), 8000);
-    } catch {
-      // Long Tasks API không khả dụng trên mọi browser
-    }
-
-    // Ghi tất cả metrics ban đầu
-    setMetrics(prev => ({ ...prev, ...collected }));
-
-    // Fallback: đánh dấu done sau 6 giây nếu observer không trigger
-    const timeout = setTimeout(() => setCollecting(false), 6000);
-    return () => clearTimeout(timeout);
-  }, [startTime]);
-
-  // Tính Lighthouse-style overall score (đơn giản hóa)
-  const scoreMetrics = [
-    { v: metrics.fcp,  w: 0.25, t: THRESHOLDS.FCP  },
-    { v: metrics.lcp,  w: 0.35, t: THRESHOLDS.LCP  },
-    { v: metrics.tbt,  w: 0.25, t: THRESHOLDS.TBT  },
-    { v: metrics.ttfb, w: 0.15, t: THRESHOLDS.TTFB },
-  ];
-  const available = scoreMetrics.filter(m => m.v !== null);
-  const score = available.length > 0
-    ? Math.round(
-        available.reduce((acc, m) => {
-          const ratio = Math.min(m.v / m.t.poor, 1);
-          return acc + (1 - ratio) * (m.w / available.reduce((s, x) => s + x.w, 0));
-        }, 0) * 100
-      )
-    : null;
-
-  const scoreColor = score === null ? 'text-slate-400' :
-    score >= 90 ? 'text-emerald-500' :
-    score >= 50 ? 'text-amber-500' : 'text-red-500';
-
-  return (
-    <div className={`border-t-4 ${colors.border} bg-slate-50`}>
-      {/* ── Header row ── */}
+      {/* ── Collapsed bar — always visible, click to toggle ── */}
       <div
-        className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between cursor-pointer select-none"
-        onClick={() => setExpanded(e => !e)}
+        className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between cursor-pointer select-none"
+        onClick={() => setOpen(o => !o)}
       >
         <div className="flex items-center gap-3">
-          <div className={`${colors.bg} text-slate-900 text-[9px] font-black tracking-[0.2em] uppercase px-2 py-1 rounded`}>
-            {mode}
-          </div>
-          <span className="text-[10px] font-black tracking-[0.15em] uppercase text-slate-500">
-            Performance Benchmark
+          <span className={`${d.bg} text-white text-[9px] font-black tracking-widest uppercase px-2 py-1 rounded`}>
+            {d.short}
           </span>
-          {collecting && (
-            <span className="flex items-center gap-1.5 text-[9px] text-slate-400 font-mono">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              Measuring...
-            </span>
-          )}
+          <span className="text-[10px] font-black tracking-[0.1em] uppercase text-slate-500">{d.label}</span>
+          <span className="text-[9px] text-slate-400 hidden md:block">— {d.tagline}</span>
         </div>
-
-        <div className="flex items-center gap-4">
-          {/* Score badge */}
-          {score !== null && (
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] text-slate-400 font-mono uppercase tracking-widest">Score</span>
-              <span className={`text-xl font-black tabular-nums ${scoreColor}`}>{score}</span>
-              <span className="text-[9px] text-slate-300">/100</span>
-            </div>
-          )}
-
-          {/* Quick metrics pill */}
-          <div className="hidden md:flex items-center gap-3 text-[9px] font-mono text-slate-500">
-            {metrics.fcp  !== null && <span>FCP <b className="text-slate-700">{Math.round(metrics.fcp)}ms</b></span>}
-            {metrics.lcp  !== null && <span>LCP <b className="text-slate-700">{Math.round(metrics.lcp)}ms</b></span>}
-            {metrics.tbt  !== null && <span>TBT <b className="text-slate-700">{Math.round(metrics.tbt)}ms</b></span>}
-          </div>
-
-          <span className="text-slate-400 text-xs">{expanded ? '▲' : '▼'}</span>
-        </div>
+        <span className="text-slate-400 text-sm">{open ? '▲' : '▼'}</span>
       </div>
 
-      {/* ── Expanded panel ── */}
-      {expanded && (
-        <div className="max-w-6xl mx-auto px-6 pb-8">
+      {/* ── Expanded content ── */}
+      {open && (
+      <div className="max-w-6xl mx-auto px-6 pb-8 border-t border-slate-100 pt-6">
 
-          {/* Explanation banner */}
-          <div className={`${colors.light} border ${colors.border} border-opacity-30 rounded-xl p-4 mb-6 text-xs`}>
-            <p className={`font-black uppercase tracking-[0.15em] text-[9px] ${colors.dark} mb-1`}>
-              Về {mode} Rendering
-            </p>
-            <p className="text-slate-600 leading-relaxed">
-              {mode === 'SSG' && 'HTML được tạo sẵn tại build time. Không có server processing khi user request → TTFB thấp nhất, FCP nhanh nhất. Dữ liệu có thể cũ.'}
-              {mode === 'SSR' && 'HTML được tạo mới trên server mỗi request. TTFB cao hơn SSG vì phải chờ server xử lý, nhưng dữ liệu luôn mới nhất.'}
-              {mode === 'ISR' && 'Kết hợp: Lần đầu serve static HTML (nhanh như SSG), background revalidate sau interval. Cân bằng tốt nhất giữa tốc độ và data freshness.'}
-              {mode === 'CSR' && 'HTML rỗng từ server, toàn bộ render xảy ra ở browser sau khi JS load xong. FCP và LCP cao nhất vì phải chờ JS → fetch → render.'}
-            </p>
-          </div>
-
-          {/* Metric cards grid */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-            <MetricCard
-              label="FCP"
-              metric="FCP"
-              value={metrics.fcp}
-              description="First Contentful Paint — thời gian đến khi browser vẽ nội dung đầu tiên."
-            />
-            <MetricCard
-              label="LCP"
-              metric="LCP"
-              value={metrics.lcp}
-              description="Largest Contentful Paint — thời gian đến khi phần tử lớn nhất hiển thị."
-            />
-            <MetricCard
-              label="TBT"
-              metric="TBT"
-              value={metrics.tbt}
-              description="Total Blocking Time — tổng thời gian main thread bị block bởi JS."
-            />
-            <MetricCard
-              label="TTFB"
-              metric="TTFB"
-              value={metrics.ttfb}
-              description="Time to First Byte — thời gian server phản hồi byte đầu tiên."
-            />
-            <MetricCard
-              label="Hydration"
-              metric="HYD"
-              value={metrics.hyd}
-              description="Thời gian React mount component từ khi JS bắt đầu chạy."
-            />
-          </div>
-
-          {/* Server render time nếu được truyền vào */}
-          {serverMs !== undefined && serverMs !== null && (
-            <div className="bg-slate-800 text-white rounded-xl p-4 mb-4 flex items-center justify-between">
-              <div>
-                <p className="text-[9px] font-mono text-slate-400 uppercase tracking-widest mb-1">Server Render Time</p>
-                <p className="text-lg font-black">{serverMs} <span className="text-xs text-slate-400 font-mono">ms</span></p>
-              </div>
-              <p className="text-[10px] text-slate-400 max-w-xs text-right leading-relaxed">
-                Thời gian server tạo HTML trước khi gửi về browser.
-                {mode === 'CSR' && ' N/A — CSR không có server render.'}
-              </p>
-            </div>
-          )}
-
-          {/* Lighthouse score bar */}
-          {score !== null && (
-            <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[9px] font-black tracking-[0.2em] uppercase text-slate-400 font-mono">
-                  Estimated Lighthouse Score
-                </span>
-                <span className={`text-lg font-black ${scoreColor}`}>{score}/100</span>
-              </div>
-              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-1000 ${
-                    score >= 90 ? 'bg-emerald-500' : score >= 50 ? 'bg-amber-500' : 'bg-red-500'
-                  }`}
-                  style={{ width: `${score}%` }}
-                />
-              </div>
-              <p className="text-[9px] text-slate-400 mt-2">
-                * Ước tính dựa trên FCP, LCP, TBT, TTFB được đo thực tế. Không phải điểm Lighthouse chính thức.
-              </p>
-            </div>
-          )}
+        {/* Mode switcher */}
+        <div className="flex items-center gap-1 border border-slate-200 rounded-lg p-1 w-fit mb-6">
+          {NAV_LINKS.map(link => (
+            <Link key={link.name} href={link.path}>
+              <span className={`text-[9px] font-black tracking-widest uppercase px-3 py-1.5 rounded cursor-pointer transition-colors block ${
+                mode === link.name
+                  ? `${d.bg} text-white`
+                  : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+              }`}>
+                {link.name}
+              </span>
+            </Link>
+          ))}
         </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+          {/* ── Left col: Flow + Vitals ── */}
+          <div className="lg:col-span-2 space-y-6">
+
+            {/* Request flow */}
+            <div>
+              <h3 className="text-[9px] font-black tracking-[0.2em] uppercase text-slate-400 font-mono mb-3">
+                Request Flow
+              </h3>
+              <div className="space-y-2">
+                {d.flow.map((step, i) => (
+                  <div key={i} className="flex items-start gap-3">
+                    <div className="flex flex-col items-center flex-shrink-0">
+                      <div className={`w-6 h-6 rounded-full ${d.bg} text-white flex items-center justify-center text-[9px] font-black`}>
+                        {i + 1}
+                      </div>
+                      {i < d.flow.length - 1 && (
+                        <div className="w-px h-4 bg-slate-200 mt-1" />
+                      )}
+                    </div>
+                    <div className="pb-2">
+                      <span className={`text-[9px] font-black uppercase tracking-widest font-mono px-2 py-0.5 rounded border ${d.tag}`}>
+                        {step.label}
+                      </span>
+                      <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">{step.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Expected Web Vitals */}
+            <div>
+              <h3 className="text-[9px] font-black tracking-[0.2em] uppercase text-slate-400 font-mono mb-3">
+                Expected Web Vitals
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {Object.entries(d.vitals).map(([key, v]) => (
+                  <div key={key} className="bg-slate-50 rounded-xl border border-slate-100 p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[9px] font-black tracking-widest uppercase text-slate-500 font-mono">{key}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded-full ${RATING_STYLE[v.rating]}`}>
+                          {v.rating === 'good' ? 'Good' : v.rating === 'fair' ? 'Fair' : 'Poor'}
+                        </span>
+                        <span className="text-[10px] font-black text-slate-700 tabular-nums">{v.expect}</span>
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-slate-400 leading-relaxed">{v.note}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Server cost callout — SSR only */}
+            {serverMs != null && (
+              <div className="bg-slate-800 text-white rounded-xl p-4">
+                <p className="text-[9px] font-mono text-slate-400 uppercase tracking-widest mb-1">
+                  Actual Server Cost This Request
+                </p>
+                <p className="text-2xl font-black tabular-nums mb-1">
+                  {serverMs}<span className="text-sm text-slate-400 font-mono ml-1">ms</span>
+                </p>
+                <p className="text-[9px] text-slate-400 leading-relaxed">
+                  Thời gian getServerSideProps chạy: fetch MongoDB → enrich posts → render HTML.
+                  Con số này cộng trực tiếp vào TTFB của user. SSG/ISR: 0ms mỗi request.
+                </p>
+                <div className="mt-3 h-1 bg-slate-600 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${serverMs < 500 ? 'bg-emerald-400' : serverMs < 1500 ? 'bg-amber-400' : 'bg-red-400'}`}
+                    style={{ width: `${Math.min((serverMs / 3000) * 100, 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Build time callout — SSG/ISR */}
+            {buildTime != null && (
+              <div className={`${d.lightBg} border ${d.border} border-opacity-30 rounded-xl p-4`}>
+                <p className={`text-[9px] font-mono uppercase tracking-widest mb-1 ${d.darkText} font-bold`}>
+                  {mode === 'ISR' ? 'Last Regenerated' : 'Built At'}
+                </p>
+                <p className="text-sm font-black text-slate-800">{buildTime}</p>
+                <p className="text-[9px] text-slate-500 mt-1 leading-relaxed">
+                  {mode === 'ISR'
+                    ? 'Trang này sẽ được regenerate tự động khi backend gọi /api/revalidate. Server cost mỗi request: 0ms.'
+                    : 'Trang này sẽ không thay đổi cho đến khi chạy lại next build. Mọi bài viết mới sau thời điểm này sẽ không xuất hiện.'}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* ── Right col: Strengths, Weaknesses, Best for ── */}
+          <div className="space-y-5">
+
+            <div>
+              <h3 className="text-[9px] font-black tracking-[0.2em] uppercase text-slate-400 font-mono mb-3">
+                Strengths
+              </h3>
+              <ul className="space-y-2">
+                {d.strengths.map((s, i) => (
+                  <li key={i} className="flex items-start gap-2 text-[11px] text-slate-600 leading-relaxed">
+                    <span className="text-emerald-500 font-black flex-shrink-0 mt-0.5">✓</span>
+                    {s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="text-[9px] font-black tracking-[0.2em] uppercase text-slate-400 font-mono mb-3">
+                Weaknesses
+              </h3>
+              <ul className="space-y-2">
+                {d.weaknesses.map((w, i) => (
+                  <li key={i} className="flex items-start gap-2 text-[11px] text-slate-600 leading-relaxed">
+                    <span className="text-red-400 font-black flex-shrink-0 mt-0.5">✕</span>
+                    {w}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className={`${d.lightBg} border ${d.border} border-opacity-20 rounded-xl p-4`}>
+              <h3 className={`text-[9px] font-black tracking-[0.2em] uppercase font-mono mb-2 ${d.darkText}`}>
+                Best For
+              </h3>
+              <p className="text-[11px] text-slate-600 leading-relaxed">{d.bestFor}</p>
+            </div>
+
+          </div>
+        </div>
+      </div>
       )}
     </div>
   );
