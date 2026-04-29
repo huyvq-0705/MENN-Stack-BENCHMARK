@@ -58,19 +58,18 @@ export async function getServerSideProps(context) {
   }
 
   try {
-    // Gọi trực tiếp tới API Search ở Backend
     const BACKEND_BASE = process.env.INTERNAL_BACKEND_URL || 'http://127.0.0.1:5123';
-    const res = await fetch(`${BACKEND_BASE}/api/search?q=${encodeURIComponent(q)}`);
+    
+    const res = await fetch(`${BACKEND_BASE}/api/posts/search?q=${encodeURIComponent(q)}`);
+    
+    if (!res.ok) {
+      throw new Error(`Backend trả về mã lỗi: ${res.status}`);
+    }
+
     const results = await res.json();
     const endTime = Date.now();
 
-    return {
-      props: {
-        results,
-        query: q,
-        timeTaken: endTime - startTime
-      }
-    };
+    return { props: { results, query: q, timeTaken: endTime - startTime } };
   } catch (error) {
     console.error("SSR Search Error:", error);
     return { props: { results: [], query: q, timeTaken: 0 } };

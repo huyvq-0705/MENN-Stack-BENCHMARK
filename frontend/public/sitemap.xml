@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <!-- Core Pages -->
+  <url>
+    <loc>https://ie213saigonblog.online/</loc>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://ie213saigonblog.online/search</loc>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Rendering Strategies -->
+  <url><loc>https://ie213saigonblog.online/ssg/homepage</loc></url>
+  <url><loc>https://ie213saigonblog.online/ssr/homepage</loc></url>
+  <url><loc>https://ie213saigonblog.online/isr/homepage</loc></url>
+  <url><loc>https://ie213saigonblog.online/csr/homepage</loc></url>
+
+  <!-- Seminar Chapters -->
+  <url><loc>https://ie213saigonblog.online/seminar/introduction</loc></url>
+  <url><loc>https://ie213saigonblog.online/seminar/theory</loc></url>
+  <url><loc>https://ie213saigonblog.online/seminar/experiment</loc></url>
+  <url><loc>https://ie213saigonblog.online/seminar/result</loc></url>
+
+  <!-- Technical Documentation -->
+  <url><loc>https://ie213saigonblog.online/docs/hybrid</loc></url>
+  <url><loc>https://ie213saigonblog.online/docs/cloud</loc></url>
+  <url><loc>https://ie213saigonblog.online/docs/menn-flow</loc></url>
+  <url><loc>https://ie213saigonblog.online/docs/seo</loc></url>
+  <url><loc>https://ie213saigonblog.online/docs/vitals</loc></url>
+</urlset>
