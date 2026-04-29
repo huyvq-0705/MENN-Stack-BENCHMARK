@@ -143,9 +143,10 @@ function InlinedMegaFooter({ tags, stats }) {
             <span>NEXT.JS v14.2 STABLE</span>
           </div>
           <div className="mt-4 md:mt-0 flex gap-6">
-            <Link href="/docs/hybrid" className="hover:text-blue-400 transition-colors uppercase">Giới thiệu</Link>
-            <Link href="/docs/menn-flow" className="hover:text-blue-400 transition-colors uppercase">Lý thuyết</Link>
-            <Link href="/docs/vitals" className="hover:text-blue-400 transition-colors uppercase">Thực nghiệm</Link>
+            <Link href="/seminar/introduction" className="hover:text-amber-400 transition-colors uppercase">Giới thiệu</Link>
+            <Link href="/seminar/theory" className="hover:text-amber-400 transition-colors uppercase">Lý thuyết</Link>
+            <Link href="/seminar/experiment" className="hover:text-amber-400 transition-colors uppercase">Thực nghiệm</Link>
+            <Link href="/seminar/result" className="hover:text-amber-400 transition-colors uppercase">Kết Quả</Link>
           </div>
         </div>
       </div>
